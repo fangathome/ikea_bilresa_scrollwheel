@@ -1,137 +1,183 @@
 blueprint:
-  name: "IKEA Bilresa – Scrollwheel"
-  description: "Eine Automation für beide Dreh-Richtungen mit unterschiedlichen multi_press_8 Aktionen"
+  name: "IKEA Bilresa Scroll Wheel – Helligkeit Steuerung (Rechts & Links)"
+  description: "Universelle Helligkeit-Steuerung für IKEA Bilresa Scroll Wheel mit separaten Konfigurationen für Rechts- und Linksdrehung"
   domain: automation
   input:
-    event_right:
-      name: "Event Entity – Drehen Rechts"
+    scrollwheel_right_event_entity:
+      name: "Scroll Wheel Event Entity – Rechtsdrehung"
+      description: "Event Entity des Scroll Wheels für Rechtsdrehung"
       selector:
         entity:
           domain: event
     
-    event_left:
-      name: "Event Entity – Drehen Links"
+    scrollwheel_left_event_entity:
+      name: "Scroll Wheel Event Entity – Linksdrehung"
+      description: "Event Entity des Scroll Wheels für Linksdrehung"
       selector:
         entity:
           domain: event
     
     target_light:
       name: "Ziellampe"
+      description: "Lampe die gesteuert werden soll"
       selector:
         entity:
           domain: light
     
-    brightness_per_step:
-      name: "Helligkeit pro Schritt (%)"
+    scroll_right_direction:
+      name: "Aktion bei Rechtsdrehung"
+      description: "Was soll bei Rechtsdrehung passieren?"
+      selector:
+        select:
+          options:
+            - label: "Helligkeit erhöhen"
+              value: "brighten"
+            - label: "Helligkeit reduzieren"
+              value: "dim"
+      default: "brighten"
+    
+    scroll_left_direction:
+      name: "Aktion bei Linksdrehung"
+      description: "Was soll bei Linksdrehung passieren?"
+      selector:
+        select:
+          options:
+            - label: "Helligkeit erhöhen"
+              value: "brighten"
+            - label: "Helligkeit reduzieren"
+              value: "dim"
+      default: "dim"
+    
+    brightness_per_step_right:
+      name: "Helligkeit pro Schritt – Rechts (%)"
       default: 5
       selector:
         number:
           min: 1
           max: 20
-          unit_of_measurement: "%"
     
-    multi_press_8_right:
-      name: "multi_press_8 Aktion – Rechts"
-      description: "Was passiert bei 8× Drehen RECHTS?"
+    brightness_per_step_left:
+      name: "Helligkeit pro Schritt – Links (%)"
+      default: 5
       selector:
-        select:
-          options:
-            - label: "Lampe ausschalten"
-              value: "toggle_off"
-            - label: "Maximale Helligkeit (100%)"
-              value: "max_brightness"
-            - label: "Minimale Helligkeit (10%)"
-              value: "min_brightness"
-      default: "toggle_off"
+        number:
+          min: 1
+          max: 20
     
-    multi_press_8_left:
-      name: "multi_press_8 Aktion – Links"
-      description: "Was passiert bei 8× Drehen LINKS?"
+    startup_brightness_right:
+      name: "Starthelligkeit beim Einschalten – Rechts (%)"
+      default: 20
+      description: "Helligkeit in %, mit der das Licht bei Rechtsdrehung eingeschaltet wird"
       selector:
-        select:
-          options:
-            - label: "Lampe ausschalten"
-              value: "toggle_off"
-            - label: "Maximale Helligkeit (100%)"
-              value: "max_brightness"
-            - label: "Minimale Helligkeit (10%)"
-              value: "min_brightness"
-      default: "toggle_off"
+        number:
+          min: 5
+          max: 50
+    
+    startup_brightness_left:
+      name: "Starthelligkeit beim Einschalten – Links (%)"
+      default: 20
+      description: "Helligkeit in %, mit der das Licht bei Linksdrehung eingeschaltet wird"
+      selector:
+        number:
+          min: 5
+          max: 50
 
 trigger:
   - platform: state
-    entity_id: 
-      - !input event_right
-      - !input event_left
-    attribute: event_type
+    entity_id: !input scrollwheel_right_event_entity
+    id: "right_scroll"
+  - platform: state
+    entity_id: !input scrollwheel_left_event_entity
+    id: "left_scroll"
 
 action:
   - variables:
-      brightness_step_value: !input brightness_per_step
-      multi_press_8_right_value: !input multi_press_8_right
-      multi_press_8_left_value: !input multi_press_8_left
-      target_light_entity: !input target_light
-      event_right_value: !input event_right
-      event_left_value: !input event_left
+      is_right_scroll: "{{ trigger.id == 'right_scroll' }}"
+      scroll_direction_right: !input scroll_right_direction
+      scroll_direction_left: !input scroll_left_direction
+      bright_step_right: !input brightness_per_step_right
+      bright_step_left: !input brightness_per_step_left
+      startup_bright_right: !input startup_brightness_right
+      startup_bright_left: !input startup_brightness_left
+      target_entity: !input target_light
       
-      press_count: "{{ state_attr(trigger.entity_id, 'event_type') | regex_replace('^multi_press_(\\d+)$', '\\1') | int(1) }}"
-      is_right: "{{ trigger.entity_id == event_right_value }}"
-      direction_multiplier: "{{ 1 if is_right else -1 }}"
-      brightness_delta: "{{ (brightness_step_value | int(5) * press_count * direction_multiplier) }}"
-      light_is_on: "{{ states(target_light_entity) == 'on' }}"
-      multi_press_8_action: "{{ multi_press_8_right_value if is_right else multi_press_8_left_value }}"
-
+      # Bestimme Richtung basierend auf Trigger
+      direction: >-
+        {% if is_right_scroll %}
+          {{ 1 if scroll_direction_right == 'brighten' else -1 }}
+        {% else %}
+          {{ 1 if scroll_direction_left == 'brighten' else -1 }}
+        {% endif %}
+      
+      # Bestimme Helligkeit pro Schritt
+      bright_step: "{{ bright_step_right if is_right_scroll else bright_step_left }}"
+      
+      # Bestimme Startup-Helligkeit
+      startup_bright: "{{ startup_bright_right if is_right_scroll else startup_bright_left }}"
+      
+      # Event-Typ extrahieren
+      event_type_str: "{{ state_attr(trigger.entity_id, 'event_type') }}"
+      
+      # Press-Count berechnen
+      press_count:
+        "{{ trigger.to_state.attributes.totalNumberOfPressesCounted | int(1) }}"
+      
+      # Helligkeitsänderung berechnen
+      brightness_change: "{{ (bright_step | int(5) * press_count | int(1) * direction) }}"
+      
+      # Status prüfen
+      light_on: "{{ states(target_entity) == 'on' }}"
+      current_brightness: "{{ (state_attr(target_entity, 'brightness') or 0) | int(0) }}"
+      brightness_in_pct: "{{ ((current_brightness / 255) * 100) | round(1) }}"
+      
+      # Neue Helligkeit mit Clamp berechnen
+      raw_brightness: "{{ (startup_bright | int(20)) + brightness_change }}"
+      new_brightness: >-
+        {% set b = raw_brightness | int %}
+        {% if b < 10 %}
+          10
+        {% elif b > 100 %}
+          100
+        {% else %}
+          {{ b }}
+        {% endif %}
+  
   - if:
       - condition: template
-        value_template: "{{ light_is_on }}"
+        value_template: "{{ light_on }}"
     then:
+      # Licht ist AN – mit brightness_step_pct regeln
       - if:
           - condition: template
-            value_template: "{{ press_count < 8 }}"
+            value_template: "{{ press_count < 8 or direction > 0 }}"
         then:
           - service: light.turn_on
             target:
-              entity_id: "{{ target_light_entity }}"
+              entity_id: !input target_light
             data:
-              brightness_step_pct: "{{ brightness_delta }}"
-        else:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ multi_press_8_action == 'toggle_off' }}"
-                sequence:
-                  - service: light.turn_off
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-
-              - conditions:
-                  - condition: template
-                    value_template: "{{ multi_press_8_action == 'max_brightness' }}"
-                sequence:
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      brightness_pct: 100
-
-              - conditions:
-                  - condition: template
-                    value_template: "{{ multi_press_8_action == 'min_brightness' }}"
-                sequence:
-                  - service: light.turn_on
-                    target:
-                      entity_id: "{{ target_light_entity }}"
-                    data:
-                      brightness_pct: 10
+              brightness_step_pct: "{{ brightness_change }}"
+        #else:
+          # Bei extremem Scroll → ausschalten
+        #  - service: light.turn_off
+        #    target:
+        #      entity_id: !input target_light
     else:
+      # Licht ist AUS
       - if:
           - condition: template
-            value_template: "{{ direction_multiplier > 0 and press_count < 8 }}"
+            value_template: "{{ direction > 0 }}"
         then:
+          # Helligkeit erhöhen → Licht mit Startwert einschalten und dann anpassen
           - service: light.turn_on
             target:
-              entity_id: "{{ target_light_entity }}"
+              entity_id: !input target_light
             data:
-              brightness_pct: "{{ brightness_delta | int | max(10) | min(100) }}"
+              brightness_pct: "{{ new_brightness | int }}"
+        else:
+          # Helligkeit reduzieren → Licht bleibt aus
+          - service: light.turn_off
+            target:
+              entity_id: !input target_light
 
-mode: restart
+mode: queued
+max: 20
